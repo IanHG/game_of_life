@@ -8,6 +8,7 @@ int rows = 10;
 int cols = 10;
 int verbose = 0;
 int braille = 0;
+float fps   = 10;
 
 void (*draw_frame)(const int* board, int rows, int cols) = NULL;
 
@@ -67,7 +68,7 @@ void init_board_random
    for(int i = 0; i < size; ++i)
    {
       float r = float(rand()) / float(RAND_MAX);
-      board[i] = r < 0.2;
+      board[i] = r < 0.5;
    }
 }
 
@@ -129,13 +130,15 @@ void update_board
 
       for (int j = 1; j < cols - 1; ++j)
       {
-         curr_sum[j] += prev[j] + next[j] + curr[j - 1] + curr[j + 1];
+         curr_sum[j] += prev[j - 1] + prev[j] + prev[j + 1]
+                     +  next[j - 1] + next[j] + next[j + 1]
+                     +  curr[j - 1] + curr[j + 1];
       }
    }
 
    for(int i = 0; i < size; ++i)
    {
-      board[i] = (sum[i] == 2 || sum[i] == 3) ? 1 : 0;
+      board[i] = ((sum[i] == 2 && board[i]) || sum[i] == 3) ? 1 : 0;
       sum  [i] = 0;
    }
 }
@@ -367,6 +370,7 @@ int parse_cmdl_args(int argc, char* argv[])
          {"help", no_argument,       0, 'h'},
          {"rows", required_argument, 0, 'r'},
          {"cols", required_argument, 0, 'c'},
+         {"fps", required_argument,  0, 'f'},
          {0, 0, 0, 0}
       };
 
@@ -401,6 +405,10 @@ int parse_cmdl_args(int argc, char* argv[])
          
          case 'c':
             cols = strtol(optarg, NULL, 10);
+            break;
+
+         case 'f':
+            fps = strtof(optarg, NULL);
             break;
 
          case '?':
@@ -452,7 +460,13 @@ int main(int argc, char* argv[])
    }
    else
    {
-      init_board_file(board, rows, cols);
+      //init_board_file(board, rows, cols);
+
+      board[2 * cols + 3] = 1;
+      board[3 * cols + 4] = 1;
+      board[4 * cols + 2] = 1;
+      board[4 * cols + 3] = 1;
+      board[4 * cols + 4] = 1;
    }
 
    if(braille)
@@ -464,12 +478,16 @@ int main(int argc, char* argv[])
       draw_frame = draw_frame_basic;
    }
 
+   draw_frame(board, rows, cols);
+
    // Run the game
    //fps_type fps;
+   //
+   
    
    timespec clock_start_frame;
    timespec clock_sleep_frame;
-   timespec clock_desired_frame { .tv_sec = 0, .tv_nsec = 500000000};
+   timespec clock_desired_frame { .tv_sec = 0, .tv_nsec = 1000000000.0f / fps };
   
    while(true)
    {
@@ -478,6 +496,8 @@ int main(int argc, char* argv[])
       update_board(board, sum, rows, cols);
       //calculate_fps(&fps);
       draw_frame (board, rows, cols);
+      //break;
+
 
       clock_gettime(CLOCK_TYPE, &clock_sleep_frame);
       clock_sleep_frame.tv_sec  = clock_sleep_frame.tv_sec  - clock_start_frame.tv_sec;
