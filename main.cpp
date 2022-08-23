@@ -8,36 +8,11 @@ int rows = 10;
 int cols = 10;
 int verbose = 0;
 int braille = 0;
+int random_fill = 0;
 float fps   = 10;
+float random_fraction = 0.2;
 
 void (*draw_frame)(const int* board, int rows, int cols) = NULL;
-
-// Some input
-int random_fill = 0;
-
-/// SET COLORS
-//         /* Handle foreground */
-//			if ((color_fg ^ *(uint32_t*)pixel_fg) & 0x00FFFFFF) {
-//				*buf++ = '\033'; *buf++ = '[';
-//				*buf++ = '3'; *buf++ = '8'; /* Set foreground color */
-//				*buf++ = ';'; *buf++ = '2';
-//				*buf++ = ';'; BYTE_TO_TEXT(buf, pixel_fg->r);
-//				*buf++ = ';'; BYTE_TO_TEXT(buf, pixel_fg->g);
-//				*buf++ = ';'; BYTE_TO_TEXT(buf, pixel_fg->b);
-//				*buf++ = 'm';
-//				color_fg = *(uint32_t*)pixel_fg;
-//			}
-//         /* Handle background */
-//			if ((color_bg ^ *(uint32_t*)pixel_bg) & 0x00FFFFFF) {
-//				*buf++ = '\033'; *buf++ = '[';
-//				*buf++ = '4'; *buf++ = '8'; /* Set background color */
-//				*buf++ = ';'; *buf++ = '2';
-//				*buf++ = ';'; BYTE_TO_TEXT(buf, pixel_bg->r);
-//				*buf++ = ';'; BYTE_TO_TEXT(buf, pixel_bg->g);
-//				*buf++ = ';'; BYTE_TO_TEXT(buf, pixel_bg->b);
-//				*buf++ = 'm';
-//				color_bg = *(uint32_t*)pixel_bg;
-//			}
 
 /**
  * Print
@@ -68,7 +43,7 @@ void init_board_random
    for(int i = 0; i < size; ++i)
    {
       float r = float(rand()) / float(RAND_MAX);
-      board[i] = r < 0.5;
+      board[i] = r <= random_fraction;
    }
 }
 
@@ -143,43 +118,6 @@ void update_board
    }
 }
 
-//struct fps_type
-//{
-//   float fps        = 0.0f;
-//   float fps_max    = 10.0f;
-//   float frame_time = 0.0f;
-//};
-//
-//void calculate_fps
-//   ( fps_type* fps
-//   )
-//{
-//   static const int num_samples = 10;
-//   static float frame_times[num_samples] = {0.0f};
-//   static int   current_frame = 0;
-//   static float previous_ticks = clock();
-//
-//   float current_ticks = clock();
-//
-//   fps->frame_time = current_ticks - previous_ticks;
-//   frame_times[current_frame] = fps->frame_time;
-//
-//   float frame_time_average = 0.0f;
-//   for(int i = 0; i < num_samples; ++i)
-//   {
-//      frame_time_average += frame_times[i];
-//   }
-//   frame_time_average /= num_samples;
-//
-//   if(frame_time_average)
-//   {
-//      fps->fps = 1000.0f / frame_time_average;
-//   }
-//   
-//   previous_ticks = current_ticks;
-//   current_frame = (current_frame + 1) % num_samples;
-//}
-
 char output_buffer[2048 * 1024];
 
 void draw_frame_basic
@@ -189,8 +127,6 @@ void draw_frame_basic
    )
 {
 	/* fill output buffer */
-	//uint32_t color_fg     = 0xFFFFFF00;
-	//uint32_t color_bg     = 0xFFFFFF00;
 	char *buf            = output_buffer;
    const int *board_buf = board;
    
@@ -211,18 +147,10 @@ void draw_frame_basic
 
 		*buf++ = '\n';
 	}
-   /* Reset char (not really needed, but also doesn't cost that much) and NULL terminate */
-	//*buf++ = '\033'; *buf++ = '[';
-	//*buf++ = '0';
-	//*buf++ = 'm';
 	*buf = '\0'; /* NULL termination */
 
 	/* flush output buffer */
-	//CALL_STDOUT(fputs(output_buffer, stdout), "DG_DrawFrame: fputs error %d");
 	fputs(output_buffer, stdout);
-
-	/* clear output buffer */
-	//memset(output_buffer, '\0', buf - output_buffer + 1u);
 }
 
 void draw_frame_braille
@@ -232,8 +160,6 @@ void draw_frame_braille
    )
 {
 	/* fill output buffer */
-	//uint32_t color_fg     = 0xFFFFFF00;
-	//uint32_t color_bg     = 0xFFFFFF00;
 	char *buf            = output_buffer;
    const int *board_buf0 = board;
    const int *board_buf1 = board_buf0 + cols;
@@ -266,11 +192,14 @@ void draw_frame_braille
           *
           * U+2800 + YX
           *
-          * See also: https://en.wikipedia.org/wiki/Braille_Patterns
-          *           https://stackoverflow.com/questions/6240055/manually-converting-unicode-codepoints-into-utf-8-and-utf-16
+          * See `man utf-8`. U+28YX is in the "0x00000800 - 0x0000FFFF" range, which means it is represented by:
           *
-          * 1110xxxx 10xxxxxx 10xxxxxx
+          *    1110xxxx 10xxxxxx 10xxxxxx
           *
+          *
+          * See also: 
+          *    https://en.wikipedia.org/wiki/Braille_Patterns
+          *    https://stackoverflow.com/questions/6240055/manually-converting-unicode-codepoints-into-utf-8-and-utf-16
           **/
 
          unsigned char c0 = 0b10100000;
@@ -310,18 +239,10 @@ void draw_frame_braille
 
 		*buf++ = '\n';
 	}
-   /* Reset char (not really needed, but also doesn't cost that much) and NULL terminate */
-	//*buf++ = '\033'; *buf++ = '[';
-	//*buf++ = '0';
-	//*buf++ = 'm';
 	*buf = '\0'; /* NULL termination */
 
 	/* flush output buffer */
-	//CALL_STDOUT(fputs(output_buffer, stdout), "DG_DrawFrame: fputs error %d");
 	fputs(output_buffer, stdout);
-
-	/* clear output buffer */
-	//memset(output_buffer, '\0', buf - output_buffer + 1u);
 }
 
 /**
@@ -330,17 +251,16 @@ void draw_frame_braille
  **/
 void print_usage (FILE* stream, int exit_code)
 {
-  //fprintf (stream, "Usage:  %s [options ...]\n", global.program);
-  //fprintf (stream, "\n"
-  //                 "  Sending USR1 signal to a running %s, will cause a safe shutdown.\n"
-  //                 "\n"
-  //               , global.program 
-  //        );
   fprintf (stream,
            "  -h  --help         Display this usage information.\n"
            "  -v  --verbose      Print verbose messages.\n"
            "  -r  --rows <rows>  Set number of rows (default: 10).\n"
            "  -c  --cols <cols>  Set number of cols (default: 10).\n"
+           "  --fps <fps>        The number of frames to simulate per second.\n"
+           "  --braille          Display using Braille characters.\n"
+           "  --random           Randomly fill the board.\n"
+           "  --fraction <fraction>\n"
+           "                     The fraction of cells that are populated when using --random.\n"
            );
   exit (exit_code);
 }
@@ -371,6 +291,7 @@ int parse_cmdl_args(int argc, char* argv[])
          {"rows", required_argument, 0, 'r'},
          {"cols", required_argument, 0, 'c'},
          {"fps", required_argument,  0, 'f'},
+         {"fraction", required_argument,  0, 'a'},
          {0, 0, 0, 0}
       };
 
@@ -409,6 +330,10 @@ int parse_cmdl_args(int argc, char* argv[])
 
          case 'f':
             fps = strtof(optarg, NULL);
+            break;
+
+         case 'a':
+            random_fraction = strtof(optarg, NULL);
             break;
 
          case '?':
@@ -481,10 +406,6 @@ int main(int argc, char* argv[])
    draw_frame(board, rows, cols);
 
    // Run the game
-   //fps_type fps;
-   //
-   
-   
    timespec clock_start_frame;
    timespec clock_sleep_frame;
    timespec clock_desired_frame { .tv_sec = 0, .tv_nsec = 1000000000.0f / fps };
@@ -492,11 +413,9 @@ int main(int argc, char* argv[])
    while(true)
    {
       clock_gettime(CLOCK_TYPE, &clock_start_frame);
-
+      
       update_board(board, sum, rows, cols);
-      //calculate_fps(&fps);
-      draw_frame (board, rows, cols);
-      //break;
+      draw_frame  (board, rows, cols);
 
 
       clock_gettime(CLOCK_TYPE, &clock_sleep_frame);
