@@ -1,3 +1,6 @@
 *.x
 *.o
 *.d
+
+all_about_sixels.txt
+hi.six.1

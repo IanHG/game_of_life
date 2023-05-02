@@ -17,7 +17,10 @@ draw_type_t draw_type = ASCII;
 int random_fill = 0;
 float fps   = 10;
 float random_fraction = 0.2;
+int max_steps = 0;
 
+void (*draw_init) () = NULL;
+void (*draw_final)() = NULL;
 void (*draw_frame)(const int* board, int rows, int cols) = NULL;
 
 /**
@@ -126,7 +129,7 @@ void update_board
 
 char output_buffer[2048 * 1024];
 
-void draw_frame_basic
+void draw_frame_ascii
    (  const int* const        board
    ,  int                     rows
    ,  int                     cols
@@ -211,22 +214,22 @@ void draw_frame_braille
          unsigned char c0 = 0b10100000;
          unsigned char c1 = 0b10000000;
 
-         unsigned char d1 = 0b00000001;
-         unsigned char d2 = 0b00000010;
-         unsigned char d3 = 0b00000100;
-         unsigned char d4 = 0b00001000;
-         unsigned char d5 = 0b00010000;
-         unsigned char d6 = 0b00100000;
+         const unsigned char d1 = 0b00000001;
+         const unsigned char d2 = 0b00000010;
+         const unsigned char d3 = 0b00000100;
+         const unsigned char d4 = 0b00001000;
+         const unsigned char d5 = 0b00010000;
+         const unsigned char d6 = 0b00100000;
 
-         unsigned char d7 = 0b00000001;
-         unsigned char d8 = 0b00000010;
+         const unsigned char d7 = 0b00000001;
+         const unsigned char d8 = 0b00000010;
 
          c0 |= board_buf3[0] * d7 | board_buf3[1] * d8;
          c1 |= board_buf0[0] * d1 | board_buf0[1] * d4
             |  board_buf1[0] * d2 | board_buf1[1] * d5
             |  board_buf2[0] * d3 | board_buf2[1] * d6;
          
-         unsigned char braille_char[] = { 0xe2, c0, c1 };
+         const unsigned char braille_char[] = { 0xe2, c0, c1 };
 			*buf++ = braille_char[0]; 
 			*buf++ = braille_char[1]; 
 			*buf++ = braille_char[2]; 
@@ -249,6 +252,163 @@ void draw_frame_braille
 
 	/* flush output buffer */
 	fputs(output_buffer, stdout);
+}
+
+/**
+ * Sixel
+ **/
+void 
+draw_init_sixel
+   (
+   )
+{  
+   /* \033P is "Device Control String", and q is sixel */
+   /* Format is \033P<p1>;<p2>;<p3>q, where <p1>, <p2>, and <p3> are optional parameters */
+   //fputs("\033Pq", stdout); /* start sixel output */
+   //fputs("#0;2;100;100;100", stdout); /* define white in color register 0 */
+}
+
+void 
+draw_final_sixel
+   (
+   )
+{
+   //fputs("\033\\", stdout); /* return to normal output */
+}
+
+void draw_frame_sixel
+   (  const int* const        board
+   ,  int                     rows
+   ,  int                     cols
+   )
+{
+	char *buf            = output_buffer;
+   
+   /* sixel is 6 pixels stacked on top of each-other */
+   const int *board_buf0 = board;
+   const int *board_buf1 = board_buf0 + cols;
+   const int *board_buf2 = board_buf1 + cols;
+   const int *board_buf3 = board_buf2 + cols;
+   const int *board_buf4 = board_buf3 + cols;
+   const int *board_buf5 = board_buf4 + cols;
+
+   /* Set buffer to write from 1,1 */
+   *buf++ = '\033'; *buf++ = '[';
+   *buf++ = '1';    *buf++ = ';';
+   *buf++ = '1';    *buf++ = 'H';
+   
+   /* Enter sixel mode */
+   *buf++ = '\033'; *buf++ = 'P'; 
+   /**buf++ = '';*/ *buf++ = ';'; 
+   *buf++ = '0'; *buf++ = ';'; 
+   /* *buf++ = ''; */
+   *buf++ = 'q';
+
+   /* Define white in color register 0 */
+   *buf++ = '#'; 
+   *buf++ = '0'; *buf++ = ';';
+   *buf++ = '2'; *buf++ = ';';
+   *buf++ = '1'; *buf++ = '0'; *buf++ = '0'; *buf++ = ';';
+   *buf++ = '1'; *buf++ = '0'; *buf++ = '0'; *buf++ = ';';
+   *buf++ = '1'; *buf++ = '0'; *buf++ = '0'; 
+   
+   /* Define black in color register 1 */
+   *buf++ = '#'; 
+   *buf++ = '1'; *buf++ = ';';
+   *buf++ = '2'; *buf++ = ';';
+   *buf++ = '0'; *buf++ = '0'; *buf++ = '0'; *buf++ = ';';
+   *buf++ = '0'; *buf++ = '0'; *buf++ = '0'; *buf++ = ';';
+   *buf++ = '0'; *buf++ = '0'; *buf++ = '0'; 
+
+	for (int row = 0; row < rows; row += 6) 
+   {
+      *buf++ = '#'; *buf++ = '0';
+
+		for (int col = 0; col < cols; col += 1) 
+      {
+         unsigned char c0 = 0b00000000;
+         
+         const unsigned char b0 = 0b00000001;
+         const unsigned char b1 = 0b00000010;
+         const unsigned char b2 = 0b00000100;
+         const unsigned char b3 = 0b00001000;
+         const unsigned char b4 = 0b00010000;
+         const unsigned char b5 = 0b00100000;
+
+         c0 |= board_buf0[0] * b0 | board_buf1[0] * b1
+            |  board_buf2[0] * b2 | board_buf3[0] * b3
+            |  board_buf4[0] * b4 | board_buf5[0] * b5;
+
+         c0 += 0b00111111; /* Add 63 (defined by sixel spec) */
+
+         *buf++ = c0;
+
+         /* Increment pointers */
+         board_buf0 += 1;
+         board_buf1 += 1;
+         board_buf2 += 1;
+         board_buf3 += 1;
+         board_buf4 += 1;
+         board_buf5 += 1;
+      }
+		
+      *buf++ = '$'; /* $ means go to start of line (and overwrite with more sixels) */
+
+      board_buf0 -= cols;
+      board_buf1 -= cols;
+      board_buf2 -= cols;
+      board_buf3 -= cols;
+      board_buf4 -= cols;
+      board_buf5 -= cols;
+      
+      *buf++ = '#'; *buf++ = '1';
+
+		for (int col = 0; col < cols; col += 1) 
+      {
+         unsigned char c0 = 0b00000000;
+         
+         const unsigned char b0 = 0b00000001;
+         const unsigned char b1 = 0b00000010;
+         const unsigned char b2 = 0b00000100;
+         const unsigned char b3 = 0b00001000;
+         const unsigned char b4 = 0b00010000;
+         const unsigned char b5 = 0b00100000;
+
+         c0 |= (!board_buf0[0]) * b0 | (!board_buf1[0]) * b1
+            |  (!board_buf2[0]) * b2 | (!board_buf3[0]) * b3
+            |  (!board_buf4[0]) * b4 | (!board_buf5[0]) * b5;
+
+         c0 += 0b00111111; /* Add 63 (defined by sixel spec) */
+
+         *buf++ = c0;
+
+         /* Increment pointers */
+         board_buf0 += 1;
+         board_buf1 += 1;
+         board_buf2 += 1;
+         board_buf3 += 1;
+         board_buf4 += 1;
+         board_buf5 += 1;
+      }
+
+      board_buf0 += 5 * cols;
+      board_buf1 += 5 * cols;
+      board_buf2 += 5 * cols;
+      board_buf3 += 5 * cols;
+      board_buf4 += 5 * cols;
+      board_buf5 += 5 * cols;
+
+		*buf++ = '-'; /* - means go to next line */
+   }
+   
+   *buf++ = '\033'; *buf++ = '\\'; /* End sixel mode */
+
+	*buf = '\0'; /* NULL termination */
+
+   //char buffer[] = "#0;2;0;0;0#1;2;100;100;0#2;2;0;100;0#1~~@@vv@@~~@@~~$#2??}}GG}}??}}??-#1!14@";
+	//fputs(buffer, stdout);
+	fputs(output_buffer, stdout);
+   fflush(stdout);
 }
 
 /**
@@ -293,11 +453,13 @@ int parse_cmdl_args(int argc, char* argv[])
          /* These options don’t set a flag.
             We distinguish them by their indices. */
          {"braille",  no_argument,   0, 'b'},
+         {"sixel",  no_argument,   0, 's'},
          {"help", no_argument,       0, 'h'},
          {"rows", required_argument, 0, 'r'},
          {"cols", required_argument, 0, 'c'},
          {"fps", required_argument,  0, 'f'},
          {"fraction", required_argument,  0, 'a'},
+         {"maxsteps", required_argument,  0, 'm'},
          {0, 0, 0, 0}
       };
 
@@ -330,6 +492,10 @@ int parse_cmdl_args(int argc, char* argv[])
          case 'b':
             draw_type = BRAILLE;
             break;
+         
+         case 's':
+            draw_type = SIXEL;
+            break;
 
          case 'r':
             rows = strtol(optarg, NULL, 10);
@@ -345,6 +511,10 @@ int parse_cmdl_args(int argc, char* argv[])
 
          case 'a':
             random_fraction = strtof(optarg, NULL);
+            break;
+
+         case 'm':
+            max_steps = strtol(optarg, NULL, 10);
             break;
 
          case '?':
@@ -395,12 +565,14 @@ int main(int argc, char* argv[])
          buffer_size = (cols + cols % 2) * (rows + rows % 4);
          break;
       case ASCII:
-         draw_frame  = draw_frame_basic;
+         draw_frame  = draw_frame_ascii;
          buffer_size = cols * rows;
          break;
       case SIXEL:
-         printf("SIXEL not implemented.");
-         exit(1);
+         draw_init  = draw_init_sixel;
+         draw_final = draw_final_sixel;
+         draw_frame = draw_frame_sixel;
+         buffer_size = cols * (rows + rows % 6);
          break;
    }
 
@@ -423,20 +595,28 @@ int main(int argc, char* argv[])
       board[4 * cols + 4] = 1;
    }
 
+   if(draw_init)
+      draw_init();
+
    draw_frame(board, rows, cols);
 
    // Run the game
    timespec clock_start_frame;
    timespec clock_sleep_frame;
    timespec clock_desired_frame { .tv_sec = 0, .tv_nsec = 1000000000.0f / fps };
-  
-   while(true)
+   
+   int nsteps    = 0;
+   while 
+      (  true 
+      && (  max_steps == 0  
+         || nsteps != max_steps
+         )
+      )
    {
       clock_gettime(CLOCK_TYPE, &clock_start_frame);
       
       update_board(board, sum, rows, cols);
       draw_frame  (board, rows, cols);
-
 
       clock_gettime(CLOCK_TYPE, &clock_sleep_frame);
       clock_sleep_frame.tv_sec  = clock_sleep_frame.tv_sec  - clock_start_frame.tv_sec;
@@ -451,5 +631,10 @@ int main(int argc, char* argv[])
          
          nanosleep(&clock_sleep_frame, NULL);
       }
+
+      ++nsteps;
    }
+
+   if(draw_final)
+      draw_final();
 }
