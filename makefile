@@ -21,8 +21,8 @@ main.x: $(OBJECTS)
 
 # compile and generate dependency info
 %.o: %.cpp %.d
-	$(CXX) $(CXXSTD) -c $(CXXFLAGS) $*.cpp -o $*.o
 	$(CXX) $(CXXSTD) -MM $(CXXFLAGS) $*.cpp > $*.d
+	$(CXX) $(CXXSTD) -c $(CXXFLAGS) $*.cpp -o $*.o
 
 # empty rule for dependency files
 %.d: ;

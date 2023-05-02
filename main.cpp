@@ -3,11 +3,17 @@
 #include <time.h>
 #include <getopt.h>
 
+typedef enum draw_type_e 
+{  ASCII
+,  BRAILLE
+,  SIXEL 
+} draw_type_t;
+
 // Global variables
 int rows = 10;
 int cols = 10;
 int verbose = 0;
-int braille = 0;
+draw_type_t draw_type = ASCII;
 int random_fill = 0;
 float fps   = 10;
 float random_fraction = 0.2;
@@ -284,9 +290,9 @@ int parse_cmdl_args(int argc, char* argv[])
          /* These options set a flag. */
          {"verbose", no_argument, &verbose, 1},
          {"random",  no_argument, &random_fill,  1},
-         {"braille",  no_argument, &braille,  1},
          /* These options don’t set a flag.
             We distinguish them by their indices. */
+         {"braille",  no_argument,   0, 'b'},
          {"help", no_argument,       0, 'h'},
          {"rows", required_argument, 0, 'r'},
          {"cols", required_argument, 0, 'c'},
@@ -319,6 +325,11 @@ int parse_cmdl_args(int argc, char* argv[])
 
          case 'h':
             print_usage(stdout, 0);
+            break;
+
+         case 'b':
+            draw_type = BRAILLE;
+            break;
 
          case 'r':
             rows = strtol(optarg, NULL, 10);
@@ -370,14 +381,32 @@ int parse_cmdl_args(int argc, char* argv[])
  **/
 int main(int argc, char* argv[])
 {
+   // Read command line
    parse_cmdl_args(argc, argv);
    srand(time(0));
 
-   int size = cols * rows;
+   int buffer_size;
    
+   // Init draw mechanism
+   switch(draw_type)
+   {
+      case BRAILLE:
+         draw_frame  = draw_frame_braille;
+         buffer_size = (cols + cols % 2) * (rows + rows % 4);
+         break;
+      case ASCII:
+         draw_frame  = draw_frame_basic;
+         buffer_size = cols * rows;
+         break;
+      case SIXEL:
+         printf("SIXEL not implemented.");
+         exit(1);
+         break;
+   }
+
    // Init board
-   int board[size] = {0};
-   int sum  [size] = {0};
+   int board[buffer_size] = {0};
+   int sum  [buffer_size] = {0};
 
    if(random_fill)
    {
@@ -392,15 +421,6 @@ int main(int argc, char* argv[])
       board[4 * cols + 2] = 1;
       board[4 * cols + 3] = 1;
       board[4 * cols + 4] = 1;
-   }
-
-   if(braille)
-   {
-      draw_frame = draw_frame_braille;
-   }  
-   else
-   {
-      draw_frame = draw_frame_basic;
    }
 
    draw_frame(board, rows, cols);
