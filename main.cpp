@@ -560,7 +560,10 @@ void print_usage (FILE* stream, int exit_code)
            "  -r  --rows <rows>  Set number of rows (default: 10).\n"
            "  -c  --cols <cols>  Set number of cols (default: 10).\n"
            "  --fps <fps>        The number of frames to simulate per second.\n"
+           "  --ascii            Display using ASCII characters (default).\n"
            "  --braille          Display using Braille characters.\n"
+           "  --bigpixel         Display using BigPixel mode.\n"
+           "  --sixel            Display using Sixel mode (if the terminal supports it).\n"
            "  --random           Randomly fill the board.\n"
            "  --fraction <fraction>\n"
            "                     The fraction of cells that are populated when using --random.\n"
@@ -589,6 +592,7 @@ int parse_cmdl_args(int argc, char* argv[])
          {"random",  no_argument, &random_fill,  1},
          /* These options don’t set a flag.
             We distinguish them by their indices. */
+         {"ascii",  no_argument,   0, 'p'},
          {"braille",  no_argument,   0, 'b'},
          {"bigpixel",  no_argument,   0, 'i'},
          {"sixel",  no_argument,   0, 's'},
@@ -625,6 +629,10 @@ int parse_cmdl_args(int argc, char* argv[])
 
          case 'h':
             print_usage(stdout, 0);
+            break;
+
+         case 'p':
+            draw_type = ASCII;
             break;
 
          case 'b':
