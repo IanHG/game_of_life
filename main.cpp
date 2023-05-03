@@ -2,10 +2,12 @@
 
 #include <time.h>
 #include <getopt.h>
+#include <signal.h>
 
 typedef enum draw_type_e 
 {  ASCII
 ,  BRAILLE
+,  BIGPIXEL
 ,  SIXEL 
 } draw_type_t;
 
@@ -18,10 +20,35 @@ int random_fill = 0;
 float fps   = 10;
 float random_fraction = 0.2;
 int max_steps = 0;
+int keep_running = 1;
 
 void (*draw_init) () = NULL;
 void (*draw_final)() = NULL;
 void (*draw_frame)(const int* board, int rows, int cols) = NULL;
+
+/**
+ * Setup signal handlers
+ **/
+void
+sigint_handler
+   (  int         signal
+   ,  siginfo_t*  si
+   ,  void*       ptr
+   )
+{
+   keep_running = 0;
+}
+
+int 
+signal_setup_handlers
+   (
+   )
+{
+   struct sigaction sa_sigint{ 0, };
+   sa_sigint.sa_sigaction = sigint_handler;
+   sa_sigint.sa_flags     = SA_SIGINFO;
+   sigaction(SIGINT, &sa_sigint, NULL);
+}
 
 /**
  * Print
@@ -129,7 +156,11 @@ void update_board
 
 char output_buffer[2048 * 1024];
 
-void draw_frame_ascii
+/**
+ * Draw ASCII
+ **/
+void 
+draw_frame_ascii
    (  const int* const        board
    ,  int                     rows
    ,  int                     cols
@@ -162,7 +193,11 @@ void draw_frame_ascii
 	fputs(output_buffer, stdout);
 }
 
-void draw_frame_braille
+/**
+ * Draw Braille
+ **/
+void 
+draw_frame_braille
    (  const int* const        board
    ,  int                     rows
    ,  int                     cols
@@ -255,6 +290,115 @@ void draw_frame_braille
 }
 
 /**
+ * Draw bigpixel
+ **/
+#define BYTE_TO_TEXT(buf_, byte_) do {\
+	*(buf_)++ = '0' + (byte_) / 100u;\
+	*(buf_)++ = '0' + (byte_) / 10u % 10u;\
+	*(buf_)++ = '0' + (byte_) % 10u;\
+} while (0)
+
+void 
+draw_frame_bigpixel
+   (  const int* const        board
+   ,  int                     rows
+   ,  int                     cols
+   )
+{
+	/* fill output buffer */
+	char *buf            = output_buffer;
+
+	uint32_t color_fg = 0xFFFFFF00;
+	uint32_t color_bg = 0xFFFFFF00;
+
+   const int *board_buf0 = board;
+   const int *board_buf1 = board_buf0 + cols;
+   
+   // Set buffer to write from 1,1
+   *buf++ = '\033'; *buf++ = '[';
+   *buf++ = '1';    *buf++ = ';';
+   *buf++ = '1';    *buf++ = 'H';
+
+	for (int row = 0; row < rows; row+=2) 
+   {
+		for (int col = 0; col < rows; col++) 
+      {
+         /* Handle foreground */
+         uint32_t pixel_fg = (*board_buf1) * 0x000000FF;
+			if ((color_fg ^ pixel_fg) & 0x00FFFFFF) 
+         {
+				*buf++ = '\033'; *buf++ = '[';
+				*buf++ = '3'; *buf++ = '8'; /* Set foreground color */
+				*buf++ = ';'; *buf++ = '2';
+				*buf++ = ';'; BYTE_TO_TEXT(buf, (uint8_t)pixel_fg);
+				*buf++ = ';'; BYTE_TO_TEXT(buf, (uint8_t)pixel_fg);
+				*buf++ = ';'; BYTE_TO_TEXT(buf, (uint8_t)pixel_fg);
+				*buf++ = 'm';
+				color_fg = pixel_fg;
+			}
+         /* Handle background */
+         uint32_t pixel_bg = (*board_buf0) * 0x000000FF;
+			if ((color_bg ^ pixel_bg) & 0x00FFFFFF) 
+         {
+				*buf++ = '\033'; *buf++ = '[';
+				*buf++ = '4'; *buf++ = '8'; /* Set background color */
+				*buf++ = ';'; *buf++ = '2';
+				*buf++ = ';'; BYTE_TO_TEXT(buf, (uint8_t)pixel_bg);
+				*buf++ = ';'; BYTE_TO_TEXT(buf, (uint8_t)pixel_bg);
+				*buf++ = ';'; BYTE_TO_TEXT(buf, (uint8_t)pixel_bg);
+				*buf++ = 'm';
+				color_bg = pixel_bg;
+			}
+         /* Write U+2584 (solid block in lower half of cell) */
+         char two_pixel_pr_char[] = { (char)0xe2, (char)0x96, (char)0x84 };
+			*buf++ = two_pixel_pr_char[0]; 
+			*buf++ = two_pixel_pr_char[1]; 
+			*buf++ = two_pixel_pr_char[2]; 
+         
+         /* Increment pointers */
+			board_buf0++;
+			board_buf1++;
+		}
+
+		*buf++ = '\n';
+
+	   board_buf0 += cols;
+	   board_buf1 += cols;
+	}
+   
+   /* Reset char (not really needed, but also doesn't cost that much) and NULL terminate */
+	*buf++ = '\033'; *buf++ = '[';
+	*buf++ = '0';
+	*buf++ = 'm';
+
+	*buf = '\0'; /* NULL termination */
+
+	/* flush output buffer */
+	fputs(output_buffer, stdout);
+}
+
+void
+draw_final_bigpixel
+   (
+   )
+{
+	/* fill output buffer */
+	char *buf            = output_buffer;
+
+   /* Reset char (not really needed, but also doesn't cost that much) and NULL terminate */
+	*buf++ = '\033'; *buf++ = '[';
+	*buf++ = '0';
+	*buf++ = 'm';
+
+	*buf = '\0'; /* NULL termination */
+
+	/* flush output buffer */
+	fputs(output_buffer, stdout);
+}
+
+#undef BYTE_TO_TEXT
+
+/**
  * Sixel
  **/
 void 
@@ -262,8 +406,6 @@ draw_init_sixel
    (
    )
 {  
-   /* \033P is "Device Control String", and q is sixel */
-   /* Format is \033P<p1>;<p2>;<p3>q, where <p1>, <p2>, and <p3> are optional parameters */
    //fputs("\033Pq", stdout); /* start sixel output */
    //fputs("#0;2;100;100;100", stdout); /* define white in color register 0 */
 }
@@ -298,10 +440,12 @@ void draw_frame_sixel
    *buf++ = '1';    *buf++ = 'H';
    
    /* Enter sixel mode */
+   /* \033P is "Device Control String", and q is sixel */
+   /* Format is \033P<p1>;<p2>;<p3>q, where <p1>, <p2>, and <p3> are optional parameters */
    *buf++ = '\033'; *buf++ = 'P'; 
-   /**buf++ = '';*/ *buf++ = ';'; 
-   *buf++ = '0'; *buf++ = ';'; 
-   /* *buf++ = ''; */
+   ///**buf++ = '';*/ *buf++ = ';'; 
+   //*buf++ = '0'; *buf++ = ';'; 
+   ///* *buf++ = ''; */
    *buf++ = 'q';
 
    /* Define white in color register 0 */
@@ -320,21 +464,22 @@ void draw_frame_sixel
    *buf++ = '0'; *buf++ = '0'; *buf++ = '0'; *buf++ = ';';
    *buf++ = '0'; *buf++ = '0'; *buf++ = '0'; 
 
+   const unsigned char b0 = 0b00000001;
+   const unsigned char b1 = 0b00000010;
+   const unsigned char b2 = 0b00000100;
+   const unsigned char b3 = 0b00001000;
+   const unsigned char b4 = 0b00010000;
+   const unsigned char b5 = 0b00100000;
+
 	for (int row = 0; row < rows; row += 6) 
    {
+      /* Print white pixels */
       *buf++ = '#'; *buf++ = '0';
 
 		for (int col = 0; col < cols; col += 1) 
       {
          unsigned char c0 = 0b00000000;
          
-         const unsigned char b0 = 0b00000001;
-         const unsigned char b1 = 0b00000010;
-         const unsigned char b2 = 0b00000100;
-         const unsigned char b3 = 0b00001000;
-         const unsigned char b4 = 0b00010000;
-         const unsigned char b5 = 0b00100000;
-
          c0 |= board_buf0[0] * b0 | board_buf1[0] * b1
             |  board_buf2[0] * b2 | board_buf3[0] * b3
             |  board_buf4[0] * b4 | board_buf5[0] * b5;
@@ -361,18 +506,12 @@ void draw_frame_sixel
       board_buf4 -= cols;
       board_buf5 -= cols;
       
+      /* Print black pixels */
       *buf++ = '#'; *buf++ = '1';
 
 		for (int col = 0; col < cols; col += 1) 
       {
          unsigned char c0 = 0b00000000;
-         
-         const unsigned char b0 = 0b00000001;
-         const unsigned char b1 = 0b00000010;
-         const unsigned char b2 = 0b00000100;
-         const unsigned char b3 = 0b00001000;
-         const unsigned char b4 = 0b00010000;
-         const unsigned char b5 = 0b00100000;
 
          c0 |= (!board_buf0[0]) * b0 | (!board_buf1[0]) * b1
             |  (!board_buf2[0]) * b2 | (!board_buf3[0]) * b3
@@ -405,10 +544,8 @@ void draw_frame_sixel
 
 	*buf = '\0'; /* NULL termination */
 
-   //char buffer[] = "#0;2;0;0;0#1;2;100;100;0#2;2;0;100;0#1~~@@vv@@~~@@~~$#2??}}GG}}??}}??-#1!14@";
-	//fputs(buffer, stdout);
+	/* flush output buffer */
 	fputs(output_buffer, stdout);
-   fflush(stdout);
 }
 
 /**
@@ -453,6 +590,7 @@ int parse_cmdl_args(int argc, char* argv[])
          /* These options don’t set a flag.
             We distinguish them by their indices. */
          {"braille",  no_argument,   0, 'b'},
+         {"bigpixel",  no_argument,   0, 'i'},
          {"sixel",  no_argument,   0, 's'},
          {"help", no_argument,       0, 'h'},
          {"rows", required_argument, 0, 'r'},
@@ -491,6 +629,10 @@ int parse_cmdl_args(int argc, char* argv[])
 
          case 'b':
             draw_type = BRAILLE;
+            break;
+
+         case 'i':
+            draw_type = BIGPIXEL;
             break;
          
          case 's':
@@ -560,13 +702,18 @@ int main(int argc, char* argv[])
    // Init draw mechanism
    switch(draw_type)
    {
+      case ASCII:
+         draw_frame  = draw_frame_ascii;
+         buffer_size = cols * rows;
+         break;
       case BRAILLE:
          draw_frame  = draw_frame_braille;
          buffer_size = (cols + cols % 2) * (rows + rows % 4);
          break;
-      case ASCII:
-         draw_frame  = draw_frame_ascii;
-         buffer_size = cols * rows;
+      case BIGPIXEL:
+         draw_final  = draw_final_bigpixel;
+         draw_frame  = draw_frame_bigpixel;
+         buffer_size = cols * (rows + rows % 2);
          break;
       case SIXEL:
          draw_init  = draw_init_sixel;
@@ -607,7 +754,7 @@ int main(int argc, char* argv[])
    
    int nsteps    = 0;
    while 
-      (  true 
+      (  keep_running
       && (  max_steps == 0  
          || nsteps != max_steps
          )
